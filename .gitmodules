@@ -1,0 +1,3 @@
+[submodule "BaoForPostgreSQL"]
+	path = BaoForPostgreSQL
+	url = git@github.com:RajShah-1/BaoForPostgreSQL.git
