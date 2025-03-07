@@ -43,7 +43,8 @@ class QErrorBenchmark:
             
             # Get true cardinality by executing the query
             cursor = self.conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM ({query_sql}) AS actual_result")
+            print(query_sql)
+            cursor.execute(query_sql)
             true_card = cursor.fetchone()[0]
             
             # Get estimated cardinality

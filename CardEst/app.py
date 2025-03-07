@@ -1,7 +1,9 @@
 import sqlite3
 from benchmark import QErrorBenchmark
 from estimators.PostgresEstimator import PostgresEstimator
+from estimators.HistogramEstimator import HistogramEstimator
 from estimators.SampleBasedEstimator import SampleBasedEstimator
+from estimators.HyperLogLogEstimator import HyperLogLogEstimator
 
 def main():
     """Main function to run the benchmark"""
@@ -16,8 +18,8 @@ def main():
     conn = sqlite3.connect(db_path)
     
     # Add estimators
-    benchmark.add_estimator(PostgresEstimator(conn))
-    # benchmark.add_estimator(HistogramEstimator(conn))
+    # benchmark.add_estimator(PostgresEstimator(conn))
+    benchmark.add_estimator(HistogramEstimator(conn))
     benchmark.add_estimator(SampleBasedEstimator(conn))
     # benchmark.add_estimator(HyperLogLogEstimator(conn))
     

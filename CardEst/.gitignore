@@ -2,3 +2,5 @@
 .vscode/
 venv
 cardest-venv
+__pycache__/
+*.pyc

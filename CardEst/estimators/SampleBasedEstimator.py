@@ -63,8 +63,7 @@ class SampleBasedEstimator(CardinalityEstimator):
         
         # Execute the query on samples
         cursor = self.conn.cursor()
-        count_query = f"SELECT COUNT(*) FROM ({sample_query}) AS sample_result"
-        cursor.execute(count_query)
+        cursor.execute(query)
         sample_count = cursor.fetchone()[0]
         
         # Scale the result
