@@ -12,6 +12,20 @@ class HistogramEstimator(CardinalityEstimator):
     
     def build_histograms(self):
         """Build histograms for all columns in the database"""
+
+        # Load from file if available
+        import os
+        import pickle
+
+        HISTOGRAM_FILE = "./data/histograms.pkl"
+        # HISTOGRAM_FILE = ""
+
+        if os.path.exists(HISTOGRAM_FILE):
+            with open(HISTOGRAM_FILE, "rb") as f:
+                self.histograms = pickle.load(f)
+            print("Loaded histograms from file.")
+            return
+        
         cursor = self.conn.cursor()
         
         # Get all tables
@@ -23,7 +37,7 @@ class HistogramEstimator(CardinalityEstimator):
             # Get all columns for the table
             # cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}'")
             # columns = [row[0] for row in cursor.fetchall()]
-            # print("building histogram for table", table)
+            print("building histogram for table", table)
 
             cursor.execute(f"PRAGMA table_info({table});")
             columns = [row[1] for row in cursor.fetchall()]
@@ -31,27 +45,45 @@ class HistogramEstimator(CardinalityEstimator):
             for column in columns:
                 # Build histogram for the column
                 cursor.execute(f"""
-                SELECT min({column}), max({column}) FROM {table} WHERE {column} IS NOT NULL
+                SELECT MIN({column}), MAX({column}) FROM {table} WHERE {column} IS NOT NULL AND {column} <> ''
                 """)
                 min_val, max_val = cursor.fetchone()
                 
                 if min_val is not None and max_val is not None:
                     if isinstance(min_val, (int, float)) and isinstance(max_val, (int, float)):
                         # Create numeric histogram
-                        bucket_width = (max_val - min_val) / self.num_buckets
+                        bucket_width = (max_val - min_val) / (self.num_buckets - 1)
                         histogram = []
-                        
+
                         for i in range(self.num_buckets):
                             bucket_min = min_val + i * bucket_width
                             bucket_max = min_val + (i + 1) * bucket_width
-                            cursor.execute(f"""
-                            SELECT COUNT(*) FROM {table} 
-                            WHERE {column} >= {bucket_min} AND {column} < {bucket_max}
-                            """)
-                            count = cursor.fetchone()[0]
-                            histogram.append((bucket_min, bucket_max, count))
+
+                            # Count rows in the bucket and also the distinct values!
+                            if i != self.num_buckets - 1:
+                                cursor.execute(f"""
+                                SELECT COUNT(*), COUNT(DISTINCT {column}) FROM {table} 
+                                WHERE {column} >= {bucket_min} AND {column} < {bucket_max}
+                                """)
+                            else:
+                                cursor.execute(f"""
+                                SELECT COUNT(*), COUNT(DISTINCT {column}) FROM {table} 
+                                WHERE {column} >= {bucket_min} AND {column} <= {bucket_max}
+                                """)
+
+                            count, distinct_count = cursor.fetchone()
+                            histogram.append((bucket_min, bucket_max, count, distinct_count))
                         
                         self.histograms[(table, column)] = histogram
+                    else:
+                        print(f"Skipping column {column} in table {table} due to non-numeric values.", min_val, " SEP ", max_val)
+                else:
+                    print(f"Skipping column {column} in table {table} due to NULL values.")
+
+        if HISTOGRAM_FILE != '':
+            with open(HISTOGRAM_FILE, "wb") as f:
+                pickle.dump(self.histograms, f)
+        print("Histograms built and saved to file.")
     
     def estimate_cardinality(self, query):
         """Estimate the cardinality based on histograms"""
@@ -64,13 +96,17 @@ class HistogramEstimator(CardinalityEstimator):
         for table in tables:
             cursor = self.conn.cursor()
             cursor.execute(f"SELECT COUNT(*) FROM {tables[table]}")
-            table_cards[table] = cursor.fetchone()[0]
+            table_cards[tables[table]] = cursor.fetchone()[0]
         
+        # print('Cardinality before predicates:', table_cards)
+
         # Apply selectivity from predicates
         for pred in predicates:
             table, column, op, value = pred
             selectivity = self._estimate_selectivity(table, column, op, value)
             table_cards[table] *= selectivity
+        
+        # print('Cardinality after predicates:', table_cards)
         
         # Apply join selectivity
         final_card = self._estimate_joins(tables, join_conditions, table_cards)
@@ -117,7 +153,7 @@ class HistogramEstimator(CardinalityEstimator):
         where_matches = re.findall(r'([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*([<>=!]+)\s*([0-9.]+|\'[^\']*\')', query)
         
         for alias, column, operator, value in where_matches:
-            table = alias_map.get(alias, alias)  # Convert alias to table name
+            table = alias_map.get(alias, alias)
             if value.startswith("'") and value.endswith("'"):
                 value = value.strip("'")  # Handle string values
             else:
@@ -125,7 +161,7 @@ class HistogramEstimator(CardinalityEstimator):
                     value = float(value)  # Convert numbers
                 except ValueError:
                     pass  # Keep as string if conversion fails
-            predicates.append((alias, column, operator, value))
+            predicates.append((table, column, operator, value))
         
         return predicates
 
@@ -134,40 +170,48 @@ class HistogramEstimator(CardinalityEstimator):
         alias_map = self.extract_tables(query)
         join_conditions = self.extract_joins(query, alias_map)
         predicates = self.extract_predicates(query, alias_map)
+        # print(alias_map, join_conditions, predicates)
         return alias_map, join_conditions, predicates
 
 
     def _estimate_selectivity(self, table, column, op, value):
-        """Estimate selectivity using histograms"""
+        """Estimate selectivity using improved histograms"""
         if (table, column) not in self.histograms:
+            print(f'No histogram available for {table}.{column}')
             return 1.0  # No histogram available
         
         histogram = self.histograms[(table, column)]
-        total_rows = sum(bucket[2] for bucket in histogram)
+        total_rows = sum(bucket[2] for bucket in histogram)  # Total rows across all buckets
+
         if total_rows == 0:
-            return 1.0
-        
+            return 1.0  # Avoid division by zero
+
         selected_rows = 0
-        for bucket_min, bucket_max, count in histogram:
+
+        for bucket_min, bucket_max, count, distinct_count in histogram:
             if op == '=':
                 if bucket_min <= value < bucket_max:
-                    # Assume uniform distribution within bucket
-                    selected_rows += count / (bucket_max - bucket_min)
+                    # Use distinct value count instead of width
+                    estimated_per_value = count / max(1, distinct_count)  # Avoid division by zero
+                    selected_rows += estimated_per_value
+                    break  # Exit after finding the correct bucket
             elif op == '<':
                 if bucket_max <= value:
                     selected_rows += count
                 elif bucket_min < value:
-                    # Partial bucket
-                    selected_rows += count * (value - bucket_min) / (bucket_max - bucket_min)
+                    fraction = (value - bucket_min) / (bucket_max - bucket_min)
+                    selected_rows += count * fraction
             elif op == '>':
                 if bucket_min >= value:
                     selected_rows += count
                 elif bucket_max > value:
-                    # Partial bucket
-                    selected_rows += count * (bucket_max - value) / (bucket_max - bucket_min)
+                    fraction = (bucket_max - value) / (bucket_max - bucket_min)
+                    selected_rows += count * fraction
+
+        # print(f'Predicate {column} {op} {value}, estimated rows: {selected_rows}, total rows: {total_rows}')
         
-        return selected_rows / total_rows
-    
+        return max(1, selected_rows) / total_rows  # Ensure selectivity is non-zero
+
     def _estimate_joins(self, tables, join_conditions, table_cards):
         """Estimate join cardinality using independence assumption"""
         if not tables:
@@ -176,7 +220,7 @@ class HistogramEstimator(CardinalityEstimator):
         # Start with cross product
         total_card = 1
         for table in tables:
-            total_card *= table_cards[table]
+            total_card *= table_cards[tables[table]]
         
         # Apply join selectivity for each join condition
         for t1, c1, t2, c2 in join_conditions:
