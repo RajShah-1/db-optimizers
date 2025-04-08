@@ -75,6 +75,11 @@ class QErrorBenchmark:
                 true_card = cursor.fetchone()[0]
                 print(query_sql, true_card)
                 self.true_card_cache[query_hash] = true_card
+
+            # HACK: Materialize all stats for the query for the ACAH estimator
+            if hasattr(estimator, 'materialize_all_stats_for_query'):
+                estimator.materialize_all_stats_for_query(query_sql)
+
             
             # Get estimated cardinality
             start_time = time.time()

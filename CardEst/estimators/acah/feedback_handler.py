@@ -27,6 +27,82 @@ class FeedbackHandlerML:
         
         print("FeedbackHandlerML initialized.")
 
+    def _find_bucket_index(self, hist, value):
+        try:
+            num_val = float(value)
+        except:
+            return None
+        for i, bucket in enumerate(hist):
+            if bucket.contains(num_val, i == len(hist) - 1):
+                return i
+        return None
+    
+    def materialize_all_relevant_summaries(self, query, estimation_details):
+        """Builds all conditional summaries and applies base histogram splits for the given query."""
+        parsed = estimation_details.get('parsed', {})
+        preds = parsed.get('preds', [])
+        tables = parsed.get('tables', {})
+
+        self._split_all_predicate_buckets(preds)
+        self._build_all_correlated_conditional_summaries(preds)
+
+    def _split_all_predicate_buckets(self, predicates):
+        """Splits buckets for all predicate columns involved in the query."""
+        for table, col, op, val in predicates:
+            hist_key = (table, col)
+            hist = self.histograms.get(hist_key)
+            if not hist:
+                continue
+
+            idx = self._find_bucket_index(hist, val)
+            if idx is None or idx >= len(hist):
+                continue
+
+            bucket = hist[idx]
+            if bucket.count < config.MIN_BUCKET_SIZE * 2 or bucket.distinct_count <= 1:
+                continue
+
+            new_buckets = self._split_single_bucket_internal(table, col, bucket, val)
+            if new_buckets:
+                self.histograms[hist_key] = hist[:idx] + new_buckets + hist[idx+1:]
+                self._invalidate_cond_cache_for_col(table, col)
+    
+    def _build_all_correlated_conditional_summaries(self, predicates):
+        """For all correlated (col_c, col_d) pairs in predicates, build mini-histograms for each bucket of col_c."""
+        from collections import defaultdict
+        pred_cols_by_table = defaultdict(set)
+
+        for t, c, _, _ in predicates:
+            pred_cols_by_table[t].add(c)
+
+        for table, cols in pred_cols_by_table.items():
+            cols_list = list(cols)
+            for i in range(len(cols_list)):
+                for j in range(i + 1, len(cols_list)):
+                    col_c, col_d = cols_list[i], cols_list[j]
+                    pair_key = tuple(sorted((col_c, col_d)))
+                    if (table, pair_key[0], pair_key[1]) not in self.correlated_pairs:
+                        continue
+
+                    self._build_conditional_summaries_for_pair(table, col_c, col_d)
+
+    def _build_conditional_summaries_for_pair(self, table, col_c, col_d):
+        """Builds conditional mini-histograms for col_d, conditioned on all buckets of col_c."""
+        hist_key_c = (table, col_c)
+        base_hist = self.histograms.get(hist_key_c)
+        if not base_hist:
+            return
+
+        for b_idx, bucket in enumerate(base_hist):
+            if bucket.count < config.MIN_BUCKET_SIZE:
+                continue
+
+            mini_hist = self._build_conditional_mini_hist_internal(table, col_c, bucket, col_d)
+            if mini_hist:
+                key = (table, col_c, b_idx, col_d)
+                self.cond_summary_cache[key] = mini_hist
+
+
     # --- Cache Management --- 
     def get_cond_summary(self, table, col_c, bucket_idx_c, col_d):
         """Retrieves conditional summary from LRU cache."""

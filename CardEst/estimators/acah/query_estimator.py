@@ -19,6 +19,38 @@ class QueryEstimator:
         self.column_types = column_types
         self.correlated_pairs = correlated_pairs
         self.current_estimation_details = {} 
+        self.table_row_counts_cache = {}
+        self.ndv_cache = {}
+
+        # self._warmup_caches()
+
+    def _warmup_caches(self):
+        """Precompute and cache row counts and NDVs for all tables/columns."""
+        print("[ACAH] Populating row count and NDV caches...")
+
+        cursor = self.conn.cursor()
+
+        for table, columns in self.column_types.items():
+            # Table row count
+            try:
+                cursor.execute(f'SELECT COUNT(*) FROM "{table}"')
+                count = cursor.fetchone()[0]
+                self.table_row_counts_cache[table] = count
+            except Exception as e:
+                print(f"  Warning: Failed to get row count for {table}: {e}")
+                self.table_row_counts_cache[table] = 1
+
+            # Column NDVs
+            for column in columns:
+                try:
+                    cursor.execute(f'SELECT COUNT(DISTINCT "{column}") FROM "{table}" WHERE "{column}" IS NOT NULL')
+                    ndv = max(1, cursor.fetchone()[0])
+                    self.ndv_cache[(table, column)] = ndv
+                except Exception as e:
+                    print(f"  Warning: Failed to get NDV for {table}.{column}: {e}")
+                    self.ndv_cache[(table, column)] = 100  # Fallback
+
+
 
     def _add_detail(self, key, value):
         """Adds intermediate results to the details dictionary for feedback."""
@@ -43,13 +75,8 @@ class QueryEstimator:
             if not tables_map: return 1.0, self.current_estimation_details
 
             # 1. Initial Cardinalities
-            table_cards = {}
-            cursor = self.conn.cursor()
-            for alias, table in tables_map.items():
-                try:
-                    cursor.execute(f'SELECT COUNT(*) FROM "{table}"') 
-                    res = cursor.fetchone(); table_cards[table] = res[0] if res else 0
-                except Exception: table_cards[table] = 1 # Fallback
+            table_cards = self.get_table_cards_from_cache(tables_map)
+
             self._add_detail('initial_cards', table_cards.copy())
 
             # 2. Single-Table Selectivities (using conditional summaries where possible)
@@ -84,6 +111,22 @@ class QueryEstimator:
             print(f"Error during V3 cardinality estimation: {e}")
             import traceback; traceback.print_exc()
             self._add_detail('error', str(e)); return 1.0, self.current_estimation_details.copy()
+
+    def get_table_cards_from_cache(self, tables_map):
+        table_cards = {}
+        cursor = self.conn.cursor()
+        for alias, table in tables_map.items():   
+            if table in self.table_row_counts_cache:
+                table_cards[table] = self.table_row_counts_cache[table]
+            else:
+                try:
+                    cursor.execute(f'SELECT COUNT(*) FROM "{table}"') 
+                    res = cursor.fetchone(); count = res[0] if res else 0
+                    self.table_row_counts_cache[table] = count
+                    table_cards[table] = count
+                except Exception: 
+                    table_cards[table] = 1
+        return table_cards
 
     # --- Internal Estimation Helpers ---
 
@@ -424,9 +467,16 @@ class QueryEstimator:
         return final_card_est, join_details
 
     def _get_fallback_ndv(self, table, column):
-        """Gets NDV from DB as a fallback."""
+        cache_key = (table, column)
+        if cache_key in self.ndv_cache:
+            return self.ndv_cache[cache_key]
+
         cursor = self.conn.cursor()
         try:
             cursor.execute(f'SELECT COUNT(DISTINCT "{column}") FROM "{table}" WHERE "{column}" IS NOT NULL') 
-            res = cursor.fetchone(); return max(1, res[0] if res else 1)
-        except Exception: return 100 # Guess if DB query fails
+            res = cursor.fetchone(); ndv = max(1, res[0] if res else 1)
+            self.ndv_cache[cache_key] = ndv
+            return ndv
+        except Exception:
+            return 100
+

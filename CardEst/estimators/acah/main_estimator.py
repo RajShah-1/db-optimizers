@@ -36,6 +36,12 @@ class ACAHv3Estimator(CardinalityEstimator):
         self._load_or_initialize_stats() # Loads stats, initializes components
         self._last_estimation_details_map = {} 
 
+    
+    def materialize_all_stats_for_query(self, query):
+        _, estimation_details = self.query_estimator.estimate(query, self.feedback_handler.get_cond_summary)
+        self.feedback_handler.materialize_all_relevant_summaries(query, estimation_details)
+
+
     # _load_or_initialize_stats (same as V3 placeholder version, uses FeedbackHandlerML)
     def _load_or_initialize_stats(self):
         loaded = False
