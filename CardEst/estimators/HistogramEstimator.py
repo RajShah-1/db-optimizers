@@ -8,6 +8,8 @@ class HistogramEstimator(CardinalityEstimator):
         super().__init__(db_connection)
         self.num_buckets = num_buckets
         self.histograms = {}
+        self.table_cardinalities = {}
+        self.column_distinct_counts = {}
         self.build_histograms()
     
     def build_histograms(self):
@@ -22,7 +24,10 @@ class HistogramEstimator(CardinalityEstimator):
 
         if os.path.exists(HISTOGRAM_FILE):
             with open(HISTOGRAM_FILE, "rb") as f:
-                self.histograms = pickle.load(f)
+                data = pickle.load(f)
+                self.histograms = data['histograms']
+                self.table_cardinalities = data['table_cardinalities']
+                self.column_distinct_counts = data['column_distinct_counts']
             print("Loaded histograms from file.")
             return
         
@@ -39,10 +44,18 @@ class HistogramEstimator(CardinalityEstimator):
             # columns = [row[0] for row in cursor.fetchall()]
             print("building histogram for table", table)
 
+            # Get cardinality of the table
+            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+            self.table_cardinalities[table] = cursor.fetchone()[0]
+
             cursor.execute(f"PRAGMA table_info({table});")
             columns = [row[1] for row in cursor.fetchall()]
             
             for column in columns:
+                # Get number of distinct values for the column
+                cursor.execute(f"SELECT COUNT(DISTINCT {column}) FROM {table}")
+                self.column_distinct_counts[(table, column)] = cursor.fetchone()[0]
+
                 # Build histogram for the column
                 cursor.execute(f"""
                 SELECT MIN({column}), MAX({column}) FROM {table} WHERE {column} IS NOT NULL AND {column} <> ''
@@ -82,7 +95,12 @@ class HistogramEstimator(CardinalityEstimator):
 
         if HISTOGRAM_FILE != '':
             with open(HISTOGRAM_FILE, "wb") as f:
-                pickle.dump(self.histograms, f)
+                pickle.dump({
+                    'histograms': self.histograms,
+                    'table_cardinalities': self.table_cardinalities,
+                    'column_distinct_counts': self.column_distinct_counts
+                }, f)
+
         print("Histograms built and saved to file.")
     
     def estimate_cardinality(self, query):
@@ -93,10 +111,8 @@ class HistogramEstimator(CardinalityEstimator):
         
         # Estimate base cardinality for each table
         table_cards = {}
-        for table in tables:
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM {tables[table]}")
-            table_cards[tables[table]] = cursor.fetchone()[0]
+        for _, table in tables.items():
+            table_cards[table] = self.table_cardinalities.get(table, 1)
         
         # print('Cardinality before predicates:', table_cards)
 
@@ -225,11 +241,8 @@ class HistogramEstimator(CardinalityEstimator):
         # Apply join selectivity for each join condition
         for t1, c1, t2, c2 in join_conditions:
             # Simple independence-based join selectivity
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT COUNT(DISTINCT {c1}) FROM {t1}")
-            distinct1 = max(1, cursor.fetchone()[0])
-            cursor.execute(f"SELECT COUNT(DISTINCT {c2}) FROM {t2}")
-            distinct2 = max(1, cursor.fetchone()[0])
+            distinct1 = self.column_distinct_counts.get((t1, c1), 1)
+            distinct2 = self.column_distinct_counts.get((t2, c2), 1)
             
             # Selectivity = 1 / max(distinct values)
             selectivity = 1 / max(distinct1, distinct2)

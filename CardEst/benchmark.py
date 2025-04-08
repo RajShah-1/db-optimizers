@@ -1,3 +1,4 @@
+import pickle
 import re
 import json
 import time
@@ -17,7 +18,21 @@ class QErrorBenchmark:
         self.conn = sqlite3.connect(db_path)
         self.estimators = []
         self.queries = self._load_queries()
+        self.true_card_cache_file = './data/true_cardinalities.pkl'
+        self.true_card_cache = self._load_true_cardinalities()
+
         self.results = {}
+
+    def _load_true_cardinalities(self):
+        """Load cached true cardinalities if available"""
+        import os
+        import pickle
+
+        if os.path.exists(self.true_card_cache_file):
+            with open(self.true_card_cache_file, 'rb') as f:
+                print("[Cache] Loaded true cardinalities from file.")
+                return pickle.load(f)
+        return {}
     
     def _load_queries(self):
         """Load JOB queries from file"""
@@ -37,15 +52,29 @@ class QErrorBenchmark:
     def _evaluate_estimator(self, estimator):
         """Evaluate a single estimator on all queries"""
         results = []
+
+        is_cache_updated : bool = False
         
         for i, query_data in enumerate(self.queries):
             query_sql = query_data['query']
             
             # Get true cardinality by executing the query
-            cursor = self.conn.cursor()
-            print(query_sql)
-            cursor.execute(query_sql)
-            true_card = cursor.fetchone()[0]
+            # cursor = self.conn.cursor()
+            # print(query_sql)
+            # cursor.execute(query_sql)
+            # true_card = cursor.fetchone()[0]
+
+
+            query_hash = str(query_sql)
+            if query_hash in self.true_card_cache:
+                true_card = self.true_card_cache[query_hash]
+            else:
+                is_cache_updated = True
+                cursor = self.conn.cursor()
+                cursor.execute(query_sql)
+                true_card = cursor.fetchone()[0]
+                print(query_sql, true_card)
+                self.true_card_cache[query_hash] = true_card
             
             # Get estimated cardinality
             start_time = time.time()
@@ -58,6 +87,8 @@ class QErrorBenchmark:
             else:
                 q_error = max(est_card / true_card, true_card / est_card)
             
+            print(f"[Benchmark] Query {i} - True: {true_card}, Est: {est_card}, Q-Error: {q_error}")
+            
             results.append({
                 'query_id': i,
                 'true_cardinality': true_card,
@@ -66,6 +97,12 @@ class QErrorBenchmark:
                 'execution_time': end_time - start_time,
                 'num_tables': len(re.findall(r'FROM\s+([a-zA-Z0-9_]+)|JOIN\s+([a-zA-Z0-9_]+)', query_sql))
             })
+
+        # Save the true cardinalities to cache if updated
+        if is_cache_updated:
+            with open(self.true_card_cache_file, 'wb') as f:
+                pickle.dump(self.true_card_cache, f)
+                print("[Cache] Saved true cardinalities to file.")
         
         return results
     

@@ -4,6 +4,7 @@ from estimators.PostgresEstimator import PostgresEstimator
 from estimators.HistogramEstimator import HistogramEstimator
 from estimators.SampleBasedEstimator import SampleBasedEstimator
 from estimators.HyperLogLogEstimator import HyperLogLogEstimator
+from estimators.acah.main_estimator import ACAHv3Estimator
 
 def main():
     """Main function to run the benchmark"""
@@ -19,8 +20,9 @@ def main():
     
     # Add estimators
     # benchmark.add_estimator(PostgresEstimator(conn))
+    benchmark.add_estimator(ACAHv3Estimator(conn))
     benchmark.add_estimator(HistogramEstimator(conn))
-    benchmark.add_estimator(SampleBasedEstimator(conn))
+    # benchmark.add_estimator(SampleBasedEstimator(conn))
     # benchmark.add_estimator(HyperLogLogEstimator(conn))
     
     # Run the benchmark
