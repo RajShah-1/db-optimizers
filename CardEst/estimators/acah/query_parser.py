@@ -95,7 +95,11 @@ def extract_predicates(query, alias_map, column_types_ref):
     return predicates
 
 def parse_query(query, column_types_ref):
-    """Top-level parsing function using regex helpers."""
+    """
+        Top-level parsing function using regex helpers.
+        predicates: [table, column, operator, value]
+        join_condition: [table_1, column_1, table_2, column_2] operator is always equals
+    """
     query = query.replace('\n', ' ').replace('\t', ' ') # Basic normalization
     alias_map = extract_tables(query)
     if not alias_map:

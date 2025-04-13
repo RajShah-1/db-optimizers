@@ -84,24 +84,70 @@ class PredicateSelectivity:
         context.details['predicate_selectivities'] = pred_sels
 
     def _estimate_table_sel(self, context, table, preds):
+        """
+        Estimates table selectivity based on predicates, considering correlated columns.
+
+        Args:
+            context: Context object containing correlated pairs and histograms.
+            table: Table identifier.
+            preds: List of predicate dictionaries, each with 'pred' and 'original_index'.
+
+        Returns:
+            Tuple of (estimated selectivity, dictionary of predicate selectivities).
+        """
         sel = 1.0
         pred_sels = {}
-        for entry in preds:
-            idx = entry['original_index']
-            pred = entry['pred']
+        correlated_pairs_processed = set()  # Track processed correlated pairs
 
-            # Try conditional summary if applicable
-            pred_sel = self._estimate_with_cond_summary(context, table, pred)
-            if pred_sel is not None:
-                pred_sels[idx] = ('cond_summary', pred_sel)
-            else:
+        # First, process individual predicate selectivities
+        for pred_data in preds:
+            pred = pred_data['pred']
+            idx = pred_data['original_index']
+
+            # Check if this predicate is part of a correlated pair
+            correlated = False
+            for col1, col2, score in context.correlated_pairs.get(table, []):  # Use get to avoid KeyError if table not in correlated_pairs
+                if pred[1] in (col1, col2):
+                    correlated = True
+                    break
+
+            if not correlated:
                 pred_sel = self._estimate_ind_sel(context, table, pred)
                 pred_sels[idx] = ('ind', pred_sel)
+                sel *= pred_sel
 
-            sel *= pred_sel
+        # Then, process correlated predicate selectivities
+        for pred_data1 in preds:
+            pred1 = pred_data1['pred']
+            idx1 = pred_data1['original_index']
+            for pred_data2 in preds:
+                pred2 = pred_data2['pred']
+                idx2 = pred_data2['original_index']
+
+                key = tuple(sorted((pred1[1], pred2[1])))
+                full_key = (table, key[0], key[1])
+
+                if full_key in context.correlated_pairs and key not in correlated_pairs_processed:
+                    score = context.correlated_pairs[full_key]
+                    correlated_pairs_processed.add(key)  # Mark pair as processed
+
+                    # Calculate conditional selectivity
+                    if pred1[1] == key[0]:
+                        other_col = pred2[1]
+                        main_pred = pred1
+                    else:
+                        other_col = pred1[1]
+                        main_pred = pred2
+
+                    pred_sel = self._estimate_with_cond_summary(context, table, main_pred, other_col)
+
+                    if pred_sel is not None:
+                        pred_sels[idx1] = ('cond_summary', pred_sel)
+                        sel *= pred_sel
+
         return sel, pred_sels
 
-    def _estimate_with_cond_summary(self, context, table, pred):
+    def _estimate_with_cond_summary(self, context, table, pred, other_col):
         """Try to estimate selectivity using conditional summaries."""
         get_cond_summary = context.get_cond_summary_func
         if not get_cond_summary:
@@ -112,23 +158,21 @@ class PredicateSelectivity:
         val = pred[3]
 
         # Try each other column to see if there is a cached summary
-        for other_col in context.column_types[table]:
-            if other_col == col_c:
-                continue
-            hist_c = context.histograms.get((table, other_col))
-            if not hist_c:
-                continue
-            bucket_idx = self._find_bucket_index(hist_c, val)
-            if bucket_idx is None:
-                continue
+        if other_col == col_c:
+            return None
+        hist_c = context.histograms.get((table, other_col))
+        if not hist_c:
+            return None
+        bucket_idx = self._find_bucket_index(hist_c, val)
+        if bucket_idx is None:
+            return None
 
-            cond_hist = get_cond_summary(table, other_col, bucket_idx, col_c)
-            if not cond_hist:
-                continue
+        cond_hist = get_cond_summary(table, other_col, bucket_idx, col_c)
+        if not cond_hist:
+            return None
 
-            # Estimate using conditional histogram
-            return self._estimate_from_conditional_hist(cond_hist, op, val)
-        return None
+        # Estimate using conditional histogram
+        return self._estimate_from_conditional_hist(cond_hist, op, val)
 
     def _estimate_ind_sel(self, context, table, pred):
         _, col, op, val = pred
