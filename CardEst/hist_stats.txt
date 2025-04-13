@@ -1,0 +1,28 @@
+# ACAH stats without refinements
+ACAHv3Estimator:
+  median_q_error: 9.62551683039343
+  mean_q_error: 573.9393219811922
+  max_q_error: 16558.119401668646
+  90th_percentile: 386.07197380071324
+  95th_percentile: 1806.245625655648
+  99th_percentile: 11728.327535024939
+  mean_execution_time: 0.19391852446964808
+
+# ACAH Stats with apply refinements:
+ACAHv3Estimator:
+  median_q_error: 9.254388000443685
+  mean_q_error: 483.6472405691285
+  max_q_error: 13614.575277700194
+  90th_percentile: 239.44736841455867
+  95th_percentile: 1255.826735426755
+  99th_percentile: 10815.828856594713
+  mean_execution_time: 0.19840222426823206
+
+HistogramEstimator:
+  median_q_error: 7.9640012086041185
+  mean_q_error: 106.59812823728679
+  max_q_error: 2498.712120850698
+  90th_percentile: 255.2377934981298
+  95th_percentile: 347.7767139418268
+  99th_percentile: 1354.0089829323174
+  mean_execution_time: 3.934247153145926e-05

@@ -7,7 +7,7 @@ from ..CardinalityEstimator import CardinalityEstimator
 
 from . import config
 from .stats_builder import StatsBuilder
-from .query_estimator import QueryEstimator
+from .estimator.query_estimator import QueryEstimator
 from .feedback_handler import FeedbackHandlerML
 from . import ml_models
 

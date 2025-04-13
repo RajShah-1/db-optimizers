@@ -92,6 +92,7 @@ class QErrorBenchmark:
             else:
                 q_error = max(est_card / true_card, true_card / est_card)
             
+            print(f"[Benchmark] Query {i} - query: {query_sql}")
             print(f"[Benchmark] Query {i} - True: {true_card}, Est: {est_card}, Q-Error: {q_error}")
             
             results.append({

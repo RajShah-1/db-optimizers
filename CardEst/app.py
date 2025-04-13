@@ -21,7 +21,7 @@ def main():
     # Add estimators
     # benchmark.add_estimator(PostgresEstimator(conn))
     benchmark.add_estimator(ACAHv3Estimator(conn))
-    benchmark.add_estimator(HistogramEstimator(conn))
+    # benchmark.add_estimator(HistogramEstimator(conn))
     # benchmark.add_estimator(SampleBasedEstimator(conn))
     # benchmark.add_estimator(HyperLogLogEstimator(conn))
     

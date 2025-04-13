@@ -36,15 +36,59 @@ class FeedbackHandlerML:
             if bucket.contains(num_val, i == len(hist) - 1):
                 return i
         return None
-    
-    def materialize_all_relevant_summaries(self, query, estimation_details):
-        """Builds all conditional summaries and applies base histogram splits for the given query."""
-        parsed = estimation_details.get('parsed', {})
-        preds = parsed.get('preds', [])
-        tables = parsed.get('tables', {})
 
-        self._split_all_predicate_buckets(preds)
-        self._build_all_correlated_conditional_summaries(preds)
+    def materialize_all_relevant_summaries(self, query, estimation_details):
+        """
+        Eagerly materializes all relevant stats before estimation:
+        - Splits all buckets on filtered columns (regardless of size limits)
+        - Builds all conditional histograms for correlated & join-key column pairs
+        """
+        parsed = estimation_details.get('parsed', {})
+        preds = parsed.get('preds', [])        # [(table, col, op, val)]
+        joins = parsed.get('joins', [])        # [(table1, col1, table2, col2)]
+        tables = parsed.get('tables', {})      # {alias: table_name}
+
+        pred_cols_by_table = defaultdict(set)
+        for t, c, _, _ in preds:
+            pred_cols_by_table[t].add(c)
+
+        # --- 1. Eagerly split all buckets on predicate columns ---
+        for table, col, op, val in preds:
+            hist_key = (table, col)
+            hist = self.histograms.get(hist_key)
+            if not hist:
+                continue
+            idx = self._find_bucket_index(hist, val)
+            if idx is None or idx >= len(hist):
+                continue
+            bucket = hist[idx]
+
+            # ⛔ Ignore min size checks — eager splitting!
+            new_buckets = self._split_single_bucket_internal(table, col, bucket, val)
+            if new_buckets:
+                self.histograms[hist_key] = hist[:idx] + new_buckets + hist[idx+1:]
+                self._invalidate_cond_cache_for_col(table, col)
+
+        # --- 2. Build conditional histograms for all relevant pairs ---
+
+        # Collect columns per table (from predicates and joins)
+        for t1, c1, t2, c2 in joins:
+            pred_cols_by_table[t1].add(c1)
+            pred_cols_by_table[t2].add(c2)
+
+        for table, cols in pred_cols_by_table.items():
+            cols_list = list(cols)
+            for i in range(len(cols_list)):
+                for j in range(i + 1, len(cols_list)):
+                    col_a, col_b = cols_list[i], cols_list[j]
+                    pair_key = tuple(sorted((col_a, col_b)))
+
+                    # If the pair is correlated or part of a join, build summary
+                    if (table, pair_key[0], pair_key[1]) in self.correlated_pairs or True:
+                        # Build both directions to be safe
+                        self._build_conditional_summaries_for_pair(table, pair_key[0], pair_key[1])
+                        self._build_conditional_summaries_for_pair(table, pair_key[1], pair_key[0])
+
 
     def _split_all_predicate_buckets(self, predicates):
         """Splits buckets for all predicate columns involved in the query."""
@@ -234,7 +278,8 @@ class FeedbackHandlerML:
         cursor = self.conn.cursor(); b_min, b_max = bucket_to_split.min_val, bucket_to_split.max_val
         try:
             query = f'SELECT "{column}" FROM "{table}" WHERE "{column}" >= ? AND "{column}" <= ? ORDER BY "{column}"'
-            cursor.execute(query, (b_min, b_max)); values = [row[0] for row in cursor.fetchall()]
+            cursor.execute(query, (b_min, b_max))
+            values = [row[0] for row in cursor.fetchall()]
             if len(values) < config.MIN_BUCKET_SIZE * 2: return None 
             median_idx = len(values) // 2; split_value = values[median_idx]
             # Crude adjustment if all values same up to median
@@ -259,3 +304,5 @@ class FeedbackHandlerML:
                  return [b1, b2]
             else: return None 
         except Exception as e: print(f"    Error during bucket split internal: {e}"); return None
+
+
