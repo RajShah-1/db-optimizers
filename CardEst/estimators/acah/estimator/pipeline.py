@@ -1,5 +1,5 @@
 # pipeline.py
-"""Modular pipeline components for ACAH V3 Estimator."""
+"""Modular pipeline components for ACAH V3 Estimator (updated with conditional summaries)."""
 
 from collections import defaultdict
 import math
@@ -27,7 +27,11 @@ class QueryEstimatorContext:
         self.tables_map = tables_map
         self.joins = joins
         self.predicates = predicates
-        self.details['parsed'] = {'tables': tables_map, 'joins': joins, 'preds': predicates}
+        self.details['parsed'] = {
+            'tables': tables_map,
+            'joins': joins,
+            'preds': predicates
+        }
 
 
 class QueryEstimatorPipeline:
@@ -176,7 +180,7 @@ class PredicateSelectivity:
 
     def _estimate_ind_sel(self, context, table, pred):
         _, col, op, val = pred
-        hist = context.histograms.get((table, col))
+        hist = context.histograms.get(table, col)
         if not hist:
             return 0.1
 
@@ -205,49 +209,13 @@ class PredicateSelectivity:
 
         return max(1.0 / (total + 1), match / total)
 
-    def _estimate_from_conditional_hist(self, hist, op, val):
-        """Estimate selectivity using a histogram and a predicate."""
-        try:
-            val = float(val)
-        except:
-            return 0.05
-
-        total = sum(b.count for b in hist)
-        match = 0
-        for b in hist:
-            b.min_val = b.min_val if b.min_val != '' else 0
-            b.max_val = b.max_val if b.max_val != '' else 0
-            if b.count == 0:
-                continue
-            if op == '=' and b.min_val <= val <= b.max_val:
-                match += b.count / max(1, b.distinct_count)
-            elif op == '<':
-                if val > b.min_val:
-                    frac = min(1.0, (val - b.min_val) / (b.get_range() or 1))
-                    match += b.count * frac
-            elif op == '>':
-                if val < b.max_val:
-                    frac = min(1.0, (b.max_val - val) / (b.get_range() or 1))
-                    match += b.count * frac
-
-        return max(1.0 / (total + 1), match / total)
-
-    def _find_bucket_index(self, hist, value):
-        try:
-            num_val = float(value)
-        except:
-            return None
-        for i, bucket in enumerate(hist):
-            if bucket.contains(num_val, i == len(hist) - 1):
-                return i
-        return None
-
 
 class JoinOverlapEstimator:
     def run(self, context: QueryEstimatorContext):
         joins = context.joins
         cards = context.effective_table_cards
         hists = context.histograms
+        get_cond_summary = context.get_cond_summary_func
         final_card = 1.0
         for card in cards.values():
             final_card *= max(1.0, card)
@@ -260,7 +228,8 @@ class JoinOverlapEstimator:
         reduction = 1.0
         steps = []
         for idx, (t1, c1, t2, c2) in enumerate(joins):
-            h1, h2 = hists.get((t1, c1)), hists.get((t2, c2))
+            h1 = hists.get(t1, c1)
+            h2 = hists.get(t2, c2)
             if not h1 or not h2:
                 sel = 1.0 / 100
                 steps.append({'join_idx': idx, 'method': 'fallback', 'selectivity': sel})

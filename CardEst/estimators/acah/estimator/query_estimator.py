@@ -2,15 +2,17 @@
 
 from .pipeline import QueryEstimatorPipeline, QueryEstimatorContext
 from .. import query_parser
+from estimators.acah.catalog.stats_catalog import StatisticsCatalog
+
 
 class QueryEstimator:
-    def __init__(self, db_conn, histograms, column_types, correlated_pairs):
+    def __init__(self, db_conn, catalog: StatisticsCatalog):
         self.pipeline = QueryEstimatorPipeline()
         self.context = QueryEstimatorContext(
             conn=db_conn,
-            histograms=histograms,
-            column_types=column_types,
-            correlated_pairs=correlated_pairs
+            histograms=catalog.get_histogram_catalog(),
+            column_types=catalog.get_column_types(),
+            correlated_pairs=catalog.get_correlated_pairs(),
         )
 
     def estimate(self, query, get_cond_summary_func):

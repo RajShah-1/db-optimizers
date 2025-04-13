@@ -4,3 +4,6 @@ venv
 cardest-venv
 __pycache__/
 *.pyc
+code-dump.txt
+*.png
+.idea/

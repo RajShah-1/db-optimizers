@@ -1,0 +1,41 @@
+[Benchmark] Query 40 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mk.movie_id AND t.id=mc.movie_id AND mi.info_type_id=16 AND t.production_year>2000;
+[Benchmark] Query 40 - True: 512572712, Est: 3063510.3115929295, Q-Error: 167.31548448207383
+
+[Benchmark] Query 41 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mk.movie_id AND t.id=mc.movie_id AND mi.info_type_id=16 AND t.production_year>2005 AND t.production_year<2010;
+[Benchmark] Query 41 - True: 206772699, Est: 1706818.281895414, Q-Error: 121.14511614580309
+
+[Benchmark] Query 42 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mk.movie_id AND t.id=mc.movie_id AND mi.info_type_id=16 AND t.production_year>1990;
+[Benchmark] Query 42 - True: 625298606, Est: 3932000.5529943844, Q-Error: 159.02810733935647
+
+[Benchmark] Query 52 - query: SELECT COUNT(*) FROM title t,movie_keyword mk,movie_companies mc,movie_info mi WHERE t.id=mk.movie_id AND t.id=mc.movie_id AND t.id=mi.movie_id AND mk.keyword_id=398 AND mc.company_type_id=2 AND t.production_year>1950 AND t.production_year<2000;
+[Benchmark] Query 52 - True: 328043, Est: 1826.5420313274608, Q-Error: 179.59783808620648
+
+[Benchmark] Query 53 - query: SELECT COUNT(*) FROM title t,movie_keyword mk,movie_companies mc,movie_info mi WHERE t.id=mk.movie_id AND t.id=mc.movie_id AND t.id=mi.movie_id AND mk.keyword_id=398 AND mc.company_type_id=2 AND t.production_year>2000 AND t.production_year<2010;
+[Benchmark] Query 53 - True: 304269, Est: 1971.282826142104, Q-Error: 154.35075878760085
+
+[Benchmark] Query 54 - query: SELECT COUNT(*) FROM title t,movie_keyword mk,movie_companies mc,movie_info mi WHERE t.id=mk.movie_id AND t.id=mc.movie_id AND t.id=mi.movie_id AND mk.keyword_id=398 AND mc.company_type_id=2 AND t.production_year>1950 AND t.production_year<2010;
+[Benchmark] Query 54 - True: 649994, Est: 3267.3269388878566, Q-Error: 198.9375450199811
+
+[Benchmark] Query 57 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,cast_info ci,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mc.movie_id AND t.id=ci.movie_id AND t.id=mk.movie_id AND ci.role_id=2 AND mi.info_type_id=16 AND t.production_year>2010;
+[Benchmark] Query 57 - True: 1353230610, Est: 2546939.4657280575, Q-Error: 531.3163615426452
+
+[Benchmark] Query 58 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,cast_info ci,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mc.movie_id AND t.id=ci.movie_id AND t.id=mk.movie_id AND ci.role_id=2 AND mi.info_type_id=16 AND t.production_year>2010 AND mc.company_id=22956;
+[Benchmark] Query 58 - True: 191935, Est: 14.097758915357225, Q-Error: 13614.575277700194
+
+[Benchmark] Query 59 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,cast_info ci,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mc.movie_id AND t.id=ci.movie_id AND t.id=mk.movie_id AND ci.role_id=2 AND mi.info_type_id=16 AND t.production_year>2000;
+[Benchmark] Query 59 - True: 9537671735, Est: 9041202.407424008, Q-Error: 1054.911869594726
+
+[Benchmark] Query 64 - query: SELECT COUNT(*) FROM title t,movie_keyword mk,movie_companies mc,movie_info mi WHERE t.id=mk.movie_id AND t.id=mc.movie_id AND t.id=mi.movie_id AND mk.keyword_id=398 AND mc.company_type_id=2 AND t.production_year=1998;
+[Benchmark] Query 64 - True: 18793, Est: 80.4560637768568, Q-Error: 233.58090264174484
+
+[Benchmark] Query 65 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_info_idx mi_idx,movie_keyword mk,movie_companies mc WHERE t.id=mi.movie_id AND t.id=mk.movie_id AND t.id=mi_idx.movie_id AND t.id=mc.movie_id AND t.production_year>2000 AND mi.info_type_id=8 AND mi_idx.info_type_id=101;
+[Benchmark] Query 65 - True: 26717179, Est: 243540.2135492294, Q-Error: 109.70335703758168
+
+[Benchmark] Query 66 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_info_idx mi_idx,movie_keyword mk,movie_companies mc WHERE t.id=mi.movie_id AND t.id=mk.movie_id AND t.id=mi_idx.movie_id AND t.id=mc.movie_id AND t.production_year>2005 AND mi.info_type_id=8 AND mi_idx.info_type_id=101;
+[Benchmark] Query 66 - True: 15812866, Est: 178405.36317792028, Q-Error: 88.63447666777893 (Near threshold)
+
+[Benchmark] Query 67 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,cast_info ci,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mc.movie_id AND t.id=ci.movie_id AND t.id=mk.movie_id AND ci.role_id=2 AND mi.info_type_id=16 AND t.production_year>2000 AND t.production_year<2010 AND mk.keyword_id=7084;
+[Benchmark] Query 67 - True: 1067496, Est: 209.66608301881104, Q-Error: 5091.410039382599
+
+[Benchmark] Query 68 - query: SELECT COUNT(*) FROM title t,movie_info mi,movie_companies mc,cast_info ci,movie_keyword mk WHERE t.id=mi.movie_id AND t.id=mc.movie_id AND t.id=ci.movie_id AND t.id=mk.movie_id AND ci.role_id=2 AND mi.info_type_id=16 AND t.production_year>2000 AND t.production_year<2005 AND mk.keyword_id=7084;
+[Benchmark] Query 68 - True: 268172, Est: 188.8253800743985, Q-Error: 1420.2116256529623
