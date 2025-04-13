@@ -68,8 +68,7 @@ class ACAHv3Estimator(CardinalityEstimator):
         print("ACAHv3Estimator components initialized.")
 
     # --- Interface Methods (same implementations as V3 placeholder version) ---
-    def estimate_cardinality(self, query): # ... uses self.feedback_handler.get_cond_summary ...
-        if not self.query_estimator or not self.feedback_handler: return 1.0 
+    def estimate_cardinality(self, query):
         estimate, details = self.query_estimator.estimate(query, self.feedback_handler.get_cond_summary)
         self._last_estimation_details_map[query] = details 
         return estimate
@@ -98,7 +97,6 @@ class ACAHv3Estimator(CardinalityEstimator):
             # print(f"{self.name}: Base stats saved to {config.STATS_FILE}.") 
          except Exception as e: print(f"Error saving stats file: {e}")
 
-# --- Example Usage (V3) ---
 if __name__ == '__main__':
     DB_PATH = './imdb_simple.db' # ADJUST AS NEEDED
     estimator = None 

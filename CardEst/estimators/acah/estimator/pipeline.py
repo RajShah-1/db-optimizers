@@ -1,4 +1,4 @@
-# query_pipeline.py
+# pipeline.py
 """Modular pipeline components for ACAH V3 Estimator."""
 
 from collections import defaultdict
@@ -89,10 +89,46 @@ class PredicateSelectivity:
         for entry in preds:
             idx = entry['original_index']
             pred = entry['pred']
-            pred_sel = self._estimate_ind_sel(context, table, pred)
-            pred_sels[idx] = ('ind', pred_sel)
+
+            # Try conditional summary if applicable
+            pred_sel = self._estimate_with_cond_summary(context, table, pred)
+            if pred_sel is not None:
+                pred_sels[idx] = ('cond_summary', pred_sel)
+            else:
+                pred_sel = self._estimate_ind_sel(context, table, pred)
+                pred_sels[idx] = ('ind', pred_sel)
+
             sel *= pred_sel
         return sel, pred_sels
+
+    def _estimate_with_cond_summary(self, context, table, pred):
+        """Try to estimate selectivity using conditional summaries."""
+        get_cond_summary = context.get_cond_summary_func
+        if not get_cond_summary:
+            return None
+
+        col_c = pred[1]
+        op = pred[2]
+        val = pred[3]
+
+        # Try each other column to see if there is a cached summary
+        for other_col in context.column_types[table]:
+            if other_col == col_c:
+                continue
+            hist_c = context.histograms.get((table, other_col))
+            if not hist_c:
+                continue
+            bucket_idx = self._find_bucket_index(hist_c, val)
+            if bucket_idx is None:
+                continue
+
+            cond_hist = get_cond_summary(table, other_col, bucket_idx, col_c)
+            if not cond_hist:
+                continue
+
+            # Estimate using conditional histogram
+            return self._estimate_from_conditional_hist(cond_hist, op, val)
+        return None
 
     def _estimate_ind_sel(self, context, table, pred):
         _, col, op, val = pred
@@ -108,8 +144,8 @@ class PredicateSelectivity:
         total = sum(b.count for b in hist)
         match = 0
         for b in hist:
-            b.min_val = b.min_val if b.min_val is not '' else 0
-            b.max_val = b.max_val if b.max_val is not '' else 0
+            b.min_val = b.min_val if b.min_val != '' else 0
+            b.max_val = b.max_val if b.max_val != '' else 0
             if b.count == 0:
                 continue
             if op == '=' and b.min_val <= val <= b.max_val:
@@ -124,6 +160,43 @@ class PredicateSelectivity:
                     match += b.count * frac
 
         return max(1.0 / (total + 1), match / total)
+
+    def _estimate_from_conditional_hist(self, hist, op, val):
+        """Estimate selectivity using a histogram and a predicate."""
+        try:
+            val = float(val)
+        except:
+            return 0.05
+
+        total = sum(b.count for b in hist)
+        match = 0
+        for b in hist:
+            b.min_val = b.min_val if b.min_val != '' else 0
+            b.max_val = b.max_val if b.max_val != '' else 0
+            if b.count == 0:
+                continue
+            if op == '=' and b.min_val <= val <= b.max_val:
+                match += b.count / max(1, b.distinct_count)
+            elif op == '<':
+                if val > b.min_val:
+                    frac = min(1.0, (val - b.min_val) / (b.get_range() or 1))
+                    match += b.count * frac
+            elif op == '>':
+                if val < b.max_val:
+                    frac = min(1.0, (b.max_val - val) / (b.get_range() or 1))
+                    match += b.count * frac
+
+        return max(1.0 / (total + 1), match / total)
+
+    def _find_bucket_index(self, hist, value):
+        try:
+            num_val = float(value)
+        except:
+            return None
+        for i, bucket in enumerate(hist):
+            if bucket.contains(num_val, i == len(hist) - 1):
+                return i
+        return None
 
 
 class JoinOverlapEstimator:
