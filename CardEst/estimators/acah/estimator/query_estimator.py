@@ -6,17 +6,12 @@ from estimators.acah.catalog.stats_catalog import StatisticsCatalog
 
 
 class QueryEstimator:
-    def __init__(self, db_conn, catalog: StatisticsCatalog):
+    def __init__(self, db_conn):
         self.pipeline = QueryEstimatorPipeline()
-        self.context = QueryEstimatorContext(
-            conn=db_conn,
-            histograms=catalog.get_histogram_catalog(),
-            column_types=catalog.get_column_types(),
-            correlated_pairs=catalog.get_correlated_pairs(),
-        )
+        self.context = QueryEstimatorContext(conn=db_conn)
 
     def estimate(self, query, get_cond_summary_func):
-        self.context.reset(query, get_cond_summary_func)
+        self.context.reset(query)
         try:
             tables_map, join_conditions, predicates = query_parser.parse_query(query, self.context.column_types)
             self.context.set_parsed_query(tables_map, join_conditions, predicates)

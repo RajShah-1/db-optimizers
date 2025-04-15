@@ -5,13 +5,22 @@ from estimators.acah.catalog.cond_summary_catalog import CondSummaryCatalog
 from estimators.acah.catalog.hist_catalog import HistogramCatalog
 from estimators.acah import config
 
-
 class StatisticsCatalog:
+    _instance = None
+
     def __init__(self):
+        if StatisticsCatalog._instance is not None:
+            raise Exception("Use StatisticsCatalog.get() instead of instantiating directly")
         self.histogram_catalog : HistogramCatalog = None
         self.cond_summary_catalog : CondSummaryCatalog = None
         self.column_types = {}
         self.correlated_pairs = {}
+
+    @staticmethod
+    def get():
+        if StatisticsCatalog._instance is None:
+            StatisticsCatalog._instance = StatisticsCatalog()
+        return StatisticsCatalog._instance
 
     def initialize_from_builder(self, stats_builder):
         histograms, col_types, corr_pairs = stats_builder.build_all()

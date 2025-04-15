@@ -1,21 +1,26 @@
 # pipeline.py
-"""Modular pipeline components for ACAH V3 Estimator (updated with conditional summaries)."""
-
+"""Modular pipeline components for ACAH V3 Estimator (with actual comparison logging)."""
+import json
 from collections import defaultdict
 import math
+from pstats import Stats
+
+from estimators.acah.catalog.stats_catalog import StatisticsCatalog
+
 
 class QueryEstimatorContext:
-    def __init__(self, conn, histograms, column_types, correlated_pairs):
+    def __init__(self, conn):
         self.conn = conn
-        self.histograms = histograms
-        self.column_types = column_types
-        self.correlated_pairs = correlated_pairs
+        self.histograms = StatisticsCatalog.get().get_histogram_catalog()
+        self.column_types = StatisticsCatalog.get().get_column_types()
+        self.correlated_pairs = StatisticsCatalog.get().get_correlated_pairs()
         self.reset()
 
-    def reset(self, query=None, get_cond_summary_func=None):
+    def reset(self, query=None, compare_with_actual=True):
         self.query = query
-        self.get_cond_summary_func = get_cond_summary_func
+        self.compare_with_actual = compare_with_actual
         self.details = {}
+        self.debug_info = {}
         self.tables_map = {}
         self.predicates = []
         self.joins = []
@@ -46,6 +51,8 @@ class QueryEstimatorPipeline:
         for node in self.nodes:
             node.run(context)
 
+        print(json.dumps(context.debug_info, indent=2))
+
 
 class InitialTableCardinalities:
     def run(self, context: QueryEstimatorContext):
@@ -70,6 +77,7 @@ class PredicateSelectivity:
         eff_cards = {}
         table_sels = {}
         pred_sels = {}
+        debug_preds = []
 
         for table, card in context.table_cardinalities.items():
             if card <= 0:
@@ -77,16 +85,19 @@ class PredicateSelectivity:
                 table_sels[table] = 0.0
                 continue
 
-            sel, pred_sel_detail = self._estimate_table_sel(context, table, preds_by_table[table])
+            sel, pred_sel_detail, debug_entries = self._estimate_table_sel(context, table, preds_by_table[table], card)
             eff_cards[table] = max(1, card * sel)
             table_sels[table] = sel
             pred_sels.update(pred_sel_detail)
+            debug_preds.extend(debug_entries)
 
         context.effective_table_cards = eff_cards
         context.details['effective_cards'] = eff_cards
         context.details['table_selectivities'] = table_sels
         context.details['predicate_selectivities'] = pred_sels
+        context.debug_info['predicate_debug'] = debug_preds
 
+<<<<<<< HEAD
     def _estimate_table_sel(self, context, table, preds):
         """
         Estimates table selectivity based on predicates, considering correlated columns.
@@ -150,6 +161,49 @@ class PredicateSelectivity:
                         sel *= pred_sel
 
         return sel, pred_sels
+=======
+    def _estimate_table_sel(self, context, table, preds, table_card):
+        '''
+        Applies selectivity of all the table level predicates.
+
+        TODO: Use conditional summaries here.
+        '''
+        sel = 1.0
+        pred_sels = {}
+        debug = []
+        for entry in preds:
+            idx = entry['original_index']
+            pred = entry['pred']
+            pred_sel = self._estimate_ind_sel(context, table, pred)
+            pred_sels[idx] = ('ind', pred_sel)
+            sel *= pred_sel
+
+            debug_entry = {
+                'table': table,
+                'col': pred[1],
+                'operator': pred[2],
+                'value': pred[3],
+                'estimated_selectivity': pred_sel,
+                'estimated_cardinality': pred_sel * table_card,
+            }
+
+            if context.compare_with_actual:
+                try:
+                    cursor = context.conn.cursor()
+                    query = f'SELECT COUNT(*) FROM "{table}" WHERE "{pred[1]}" {pred[2]} ?'
+                    cursor.execute(query, (pred[3],))
+                    actual = cursor.fetchone()[0]
+                    debug_entry['actual_cardinality'] = actual
+                    debug_entry['actual/est'] = actual / (pred_sel * table_card)
+                    debug_entry['est/actual'] = (pred_sel * table_card) / actual
+                except Exception as e:
+                    debug_entry['actual_cardinality'] = None
+                    debug_entry['error'] = str(e)
+
+            debug.append(debug_entry)
+
+        return sel, pred_sels, debug
+>>>>>>> a1316d3 (General cleanup; before merging cond-summary)
 
     def _estimate_with_cond_summary(self, context, table, pred, other_col):
         """Try to estimate selectivity using conditional summaries."""
@@ -182,7 +236,7 @@ class PredicateSelectivity:
         _, col, op, val = pred
         hist = context.histograms.get(table, col)
         if not hist:
-            return 0.1
+            return 0.1 # TODO: Hack! Fix this for strings
 
         try:
             val = float(val)
@@ -193,7 +247,7 @@ class PredicateSelectivity:
         match = 0
         for b in hist:
             b.min_val = b.min_val if b.min_val != '' else 0
-            b.max_val = b.max_val if b.max_val != '' else 0
+            b.max_val = b.max_val if b.max_val != '' else 1e9
             if b.count == 0:
                 continue
             if op == '=' and b.min_val <= val <= b.max_val:
@@ -215,7 +269,7 @@ class JoinOverlapEstimator:
         joins = context.joins
         cards = context.effective_table_cards
         hists = context.histograms
-        get_cond_summary = context.get_cond_summary_func
+
         final_card = 1.0
         for card in cards.values():
             final_card *= max(1.0, card)
@@ -227,18 +281,46 @@ class JoinOverlapEstimator:
 
         reduction = 1.0
         steps = []
+        debug_joins = []
+
         for idx, (t1, c1, t2, c2) in enumerate(joins):
             h1 = hists.get(t1, c1)
             h2 = hists.get(t2, c2)
-            if not h1 or not h2:
-                sel = 1.0 / 100
-                steps.append({'join_idx': idx, 'method': 'fallback', 'selectivity': sel})
-                reduction *= sel
-                continue
+            est_sel = 1.0 / 100
+            method = 'fallback'
+            if h1 and h2:
+                est_sel = self._overlap_selectivity(h1, h2)
+                method = 'hist_overlap'
 
-            sel = self._overlap_selectivity(h1, h2)
-            steps.append({'join_idx': idx, 'method': 'hist_overlap', 'selectivity': sel})
-            reduction *= sel
+            steps.append({'join_idx': idx, 'method': method, 'selectivity': est_sel})
+            reduction *= est_sel
+
+            debug_entry = {
+                'join_index': idx,
+                'table1': t1, 'column1': c1,
+                'table2': t2, 'column2': c2,
+                'estimated_selectivity': est_sel,
+                'estimated_join_cardinality': est_sel * cards[t1] * cards[t2]
+            }
+
+            if context.compare_with_actual:
+                try:
+                    cursor = context.conn.cursor()
+                    q = f'''
+                        SELECT COUNT(*) FROM "{t1}" JOIN "{t2}"
+                        ON "{t1}"."{c1}" = "{t2}"."{c2}"
+                    '''
+                    cursor.execute(q)
+                    actual = cursor.fetchone()[0]
+                    debug_entry['actual_cardinality'] = actual
+
+                    debug_entry['actual/est'] = actual / (est_sel * cards[t1] * cards[t2])
+                    debug_entry['est/actual'] = est_sel * cards[t1] * cards[t2] / actual
+                except Exception as e:
+                    debug_entry['actual_cardinality'] = None
+                    debug_entry['error'] = str(e)
+
+            debug_joins.append(debug_entry)
 
         context.details['join_details'] = {
             'type': 'hist_overlap',
@@ -246,6 +328,7 @@ class JoinOverlapEstimator:
             'final_reduction_factor': reduction
         }
         context.final_cardinality = final_card * reduction
+        context.debug_info['join_debug'] = debug_joins
 
     def _overlap_selectivity(self, h1, h2):
         total1 = sum(b.count for b in h1)

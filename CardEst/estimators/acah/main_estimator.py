@@ -15,13 +15,10 @@ class ACAHv3Estimator(CardinalityEstimator):
 
     def __init__(self, conn):
         super().__init__(conn)
-        self.stats_catalog = StatisticsCatalog()
+        self.stats_catalog = StatisticsCatalog.get()
         self._initialize_catalog(conn)
 
-        self.query_estimator = QueryEstimator(
-            self.conn,
-            self.stats_catalog
-        )
+        self.query_estimator = QueryEstimator(self.conn)
         self.feedback_handler = FeedbackHandlerML(
             self.conn,
             self.stats_catalog
