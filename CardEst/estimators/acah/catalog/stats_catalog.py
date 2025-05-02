@@ -4,6 +4,8 @@ import pickle
 from estimators.acah.catalog.cond_summary_catalog import CondSummaryCatalog
 from estimators.acah.catalog.hist_catalog import HistogramCatalog
 from estimators.acah import config
+from estimators.acah.catalog.schema_inspector import SchemaInspector
+
 
 class StatisticsCatalog:
     _instance = None
@@ -13,6 +15,7 @@ class StatisticsCatalog:
             raise Exception("Use StatisticsCatalog.get() instead of instantiating directly")
         self.histogram_catalog : HistogramCatalog = None
         self.cond_summary_catalog : CondSummaryCatalog = None
+        self.schema_inspector : SchemaInspector = None
         self.column_types = {}
         self.correlated_pairs = {}
 
@@ -26,6 +29,7 @@ class StatisticsCatalog:
         histograms, col_types, corr_pairs = stats_builder.build_all()
         self.histogram_catalog = HistogramCatalog(histograms, stats_builder.conn)
         self.cond_summary_catalog = CondSummaryCatalog(stats_builder.conn, config.COND_SUMMARY_CACHE_SIZE)
+        self.schema_inspector = SchemaInspector(stats_builder.conn)
         self.column_types = col_types
         self.correlated_pairs = corr_pairs
 
@@ -35,6 +39,7 @@ class StatisticsCatalog:
             data = pickle.load(f)
         self.histogram_catalog = HistogramCatalog(data["histograms"], conn)
         self.cond_summary_catalog = CondSummaryCatalog(conn, config.COND_SUMMARY_CACHE_SIZE)
+        self.schema_inspector = SchemaInspector(conn)
         self.column_types = data["column_types"]
         self.correlated_pairs = data["correlated_pairs"]
 
@@ -56,6 +61,9 @@ class StatisticsCatalog:
 
     def get_cond_summary_catalog(self):
         return self.cond_summary_catalog
+
+    def get_schema_inspector(self):
+        return self.schema_inspector
 
     def get_column_types(self):
         return self.column_types

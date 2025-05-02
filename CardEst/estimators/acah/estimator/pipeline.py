@@ -67,7 +67,6 @@ class InitialTableCardinalities:
         context.table_cardinalities = cards
         context.details['initial_cards'] = cards
 
-
 class PredicateSelectivity:
     def run(self, context: QueryEstimatorContext):
         preds_by_table = defaultdict(list)
@@ -163,44 +162,43 @@ class PredicateSelectivity:
         return sel, pred_sels
 =======
     def _estimate_table_sel(self, context, table, preds, table_card):
-        '''
-        Applies selectivity of all the table level predicates.
-
-        TODO: Use conditional summaries here.
-        '''
         sel = 1.0
         pred_sels = {}
         debug = []
+        correlated_pairs_processed = set()
+
         for entry in preds:
             idx = entry['original_index']
             pred = entry['pred']
-            pred_sel = self._estimate_ind_sel(context, table, pred)
-            pred_sels[idx] = ('ind', pred_sel)
-            sel *= pred_sel
+            col = pred[1]
 
-            debug_entry = {
-                'table': table,
-                'col': pred[1],
-                'operator': pred[2],
-                'value': pred[3],
-                'estimated_selectivity': pred_sel,
-                'estimated_cardinality': pred_sel * table_card,
-            }
+            is_correlated = any(col in pair for pair in context.correlated_pairs if pair[0] == table)
+            if not is_correlated:
+                pred_sel = self._estimate_ind_sel(context, table, pred)
+                pred_sels[idx] = ('ind', pred_sel)
+                debug.append(self._debug_pred_entry(context, table, pred, pred_sel, table_card))
+                sel *= pred_sel
 
-            if context.compare_with_actual:
-                try:
-                    cursor = context.conn.cursor()
-                    query = f'SELECT COUNT(*) FROM "{table}" WHERE "{pred[1]}" {pred[2]} ?'
-                    cursor.execute(query, (pred[3],))
-                    actual = cursor.fetchone()[0]
-                    debug_entry['actual_cardinality'] = actual
-                    debug_entry['actual/est'] = actual / (pred_sel * table_card)
-                    debug_entry['est/actual'] = (pred_sel * table_card) / actual
-                except Exception as e:
-                    debug_entry['actual_cardinality'] = None
-                    debug_entry['error'] = str(e)
+        for i, entry1 in enumerate(preds):
+            pred1 = entry1['pred']
+            idx1 = entry1['original_index']
+            for j, entry2 in enumerate(preds):
+                if i >= j:
+                    continue
+                pred2 = entry2['pred']
+                idx2 = entry2['original_index']
+                key = tuple(sorted((pred1[1], pred2[1])))
+                full_key = (table, key[0], key[1])
 
-            debug.append(debug_entry)
+                if full_key in context.correlated_pairs and key not in correlated_pairs_processed:
+                    correlated_pairs_processed.add(key)
+                    main_pred, other_col = (pred1, pred2[1]) if pred1[1] == key[0] else (pred2, pred1[1])
+
+                    pred_sel, used_summary = self._estimate_with_cond_summary(context, table, main_pred, other_col)
+                    if pred_sel is not None:
+                        pred_sels[idx1] = ('cond_summary', pred_sel)
+                        debug.append(self._debug_pred_entry(context, table, main_pred, pred_sel, table_card, used_summary))
+                        sel *= pred_sel
 
         return sel, pred_sels, debug
 >>>>>>> a1316d3 (General cleanup; before merging cond-summary)
@@ -262,6 +260,89 @@ class PredicateSelectivity:
                     match += b.count * frac
 
         return max(1.0 / (total + 1), match / total)
+
+    def _estimate_with_cond_summary(self, context, table, pred, other_col):
+        col_c = pred[1]
+        val = pred[3]
+
+        hist = context.histograms.get(table, col_c)
+        if not hist:
+            return None, None
+
+        try:
+            val = float(val)
+        except:
+            return None, None
+
+        idx = self._find_bucket_index(hist, val)
+        if idx is None:
+            return None, None
+
+        col_d = other_col
+        cond_hist = context.get_cond_summary_func(table, col_c, idx, col_d)
+        if not cond_hist:
+            return None, None
+
+        total = sum(b.count for b in cond_hist)
+        match = 0
+        op = pred[2]
+
+        for b in cond_hist:
+            if op == '=' and b.min_val <= val <= b.max_val:
+                match += b.count / max(1, b.distinct_count)
+            elif op == '<' and val > b.min_val:
+                match += b.count * min(1.0, (val - b.min_val) / (b.get_range() or 1))
+            elif op == '>' and val < b.max_val:
+                match += b.count * min(1.0, (b.max_val - val) / (b.get_range() or 1))
+
+        sel = max(1.0 / (total + 1), match / total)
+        return sel, {
+            'cond_summary_key': (table, col_c, idx, col_d),
+            'summary_size': len(cond_hist)
+        }
+
+    def _find_bucket_index(self, hist, value):
+        try:
+            num_value = float(value)
+        except:
+            return None
+        for i, b in enumerate(hist):
+            if b.contains(num_value, is_last_bucket=(i == len(hist) - 1)):
+                return i
+        return None
+
+    def _debug_pred_entry(self, context, table, pred, pred_sel, table_card, summary_info=None):
+        '''
+        Helper to append a debug entry. When compare_with_actual is enabled, we actually go to the DB and
+        get the pred selectivity.
+        '''
+        entry = {
+            'table': table,
+            'col': pred[1],
+            'operator': pred[2],
+            'value': pred[3],
+            'estimated_selectivity': pred_sel,
+            'estimated_cardinality': pred_sel * table_card,
+        }
+
+        if summary_info:
+            entry['cond_summary_used'] = summary_info['cond_summary_key']
+            entry['summary_bucket_count'] = summary_info['summary_size']
+
+        if context.compare_with_actual:
+            try:
+                cursor = context.conn.cursor()
+                query = f'SELECT COUNT(*) FROM "{table}" WHERE "{pred[1]}" {pred[2]} ?'
+                cursor.execute(query, (pred[3],))
+                actual = cursor.fetchone()[0]
+                entry['actual_cardinality'] = actual
+                entry['actual/est'] = actual / (pred_sel * table_card)
+                entry['est/actual'] = (pred_sel * table_card) / actual
+            except Exception as e:
+                entry['actual_cardinality'] = None
+                entry['error'] = str(e)
+
+        return entry
 
 
 class JoinOverlapEstimator:
