@@ -96,7 +96,6 @@ class PredicateSelectivity:
         context.details['predicate_selectivities'] = pred_sels
         context.debug_info['predicate_debug'] = debug_preds
 
-<<<<<<< HEAD
     def _estimate_table_sel(self, context, table, preds):
         """
         Estimates table selectivity based on predicates, considering correlated columns.
@@ -160,48 +159,6 @@ class PredicateSelectivity:
                         sel *= pred_sel
 
         return sel, pred_sels
-=======
-    def _estimate_table_sel(self, context, table, preds, table_card):
-        sel = 1.0
-        pred_sels = {}
-        debug = []
-        correlated_pairs_processed = set()
-
-        for entry in preds:
-            idx = entry['original_index']
-            pred = entry['pred']
-            col = pred[1]
-
-            is_correlated = any(col in pair for pair in context.correlated_pairs if pair[0] == table)
-            if not is_correlated:
-                pred_sel = self._estimate_ind_sel(context, table, pred)
-                pred_sels[idx] = ('ind', pred_sel)
-                debug.append(self._debug_pred_entry(context, table, pred, pred_sel, table_card))
-                sel *= pred_sel
-
-        for i, entry1 in enumerate(preds):
-            pred1 = entry1['pred']
-            idx1 = entry1['original_index']
-            for j, entry2 in enumerate(preds):
-                if i >= j:
-                    continue
-                pred2 = entry2['pred']
-                idx2 = entry2['original_index']
-                key = tuple(sorted((pred1[1], pred2[1])))
-                full_key = (table, key[0], key[1])
-
-                if full_key in context.correlated_pairs and key not in correlated_pairs_processed:
-                    correlated_pairs_processed.add(key)
-                    main_pred, other_col = (pred1, pred2[1]) if pred1[1] == key[0] else (pred2, pred1[1])
-
-                    pred_sel, used_summary = self._estimate_with_cond_summary(context, table, main_pred, other_col)
-                    if pred_sel is not None:
-                        pred_sels[idx1] = ('cond_summary', pred_sel)
-                        debug.append(self._debug_pred_entry(context, table, main_pred, pred_sel, table_card, used_summary))
-                        sel *= pred_sel
-
-        return sel, pred_sels, debug
->>>>>>> a1316d3 (General cleanup; before merging cond-summary)
 
     def _estimate_with_cond_summary(self, context, table, pred, other_col):
         """Try to estimate selectivity using conditional summaries."""
