@@ -77,14 +77,19 @@ class QErrorBenchmark:
                 self.true_card_cache[query_hash] = true_card
 
             # HACK: Materialize all stats for the query for the ACAH estimator
-            if hasattr(estimator, 'materialize_all_stats_for_query'):
-                estimator.materialize_all_stats_for_query(query_sql)
+            if hasattr(estimator, 'prepare_stats_for_query'):
+                estimator.prepare_stats_for_query(query_sql)
 
             
             # Get estimated cardinality
             start_time = time.time()
             est_card = estimator.estimate_cardinality(query_sql)
             end_time = time.time()
+            
+            # Then apply feedback for future queries
+            # This ensures each query is estimated using only statistics from previous queries
+            if hasattr(estimator, 'materialize_all_stats_for_query'):
+                estimator.materialize_all_stats_for_query(query_sql)
             
             # Calculate q-error
             if true_card == 0:
