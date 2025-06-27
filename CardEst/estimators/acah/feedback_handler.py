@@ -255,28 +255,18 @@ class FeedbackHandlerML:
             return 0.0
 
     def apply_recommendations(self, recommendations):
-        """Apply the recommended statistics adjustments."""
-        # Apply histogram splits
-        for split in sorted(recommendations['histogram_splits'], 
-                          key=lambda x: x['priority'], 
-                          reverse=True):
+        for rec in recommendations['histogram_splits']:
             self.hist_catalog.split_bucket_on_value(
-                table=split['table'],
-                column=split['column'],
-                value=split['value']
+                rec['table'], rec['column'], rec['value']
             )
 
-        # Apply conditional summaries
-        for summary in sorted(recommendations['conditional_summaries'],
-                            key=lambda x: x['priority'],
-                            reverse=True):
-            self.cond_catalog.build_all_summaries_for(
-                summary['table'],
-                summary['col_a'],
-                summary['col_b'],
-                self.hist_catalog
+        for rec in recommendations['conditional_summaries']:
+            self.cond_catalog.materialize_summary(
+                rec['table'], rec['col_a'], rec['col_b'], self.hist_catalog
             )
 
-        # Update correlations
-        for corr in recommendations['correlation_updates']:
-            self.correlated_pairs[(corr['table'], corr['col_a'], corr['col_b'])] = corr['score']
+        for rec in recommendations['correlation_updates']:
+            self.stats_catalog.update_correlation(
+                rec['table'], rec['col_a'], rec['col_b'], rec['score']
+            )
+

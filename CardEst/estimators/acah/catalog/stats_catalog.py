@@ -70,3 +70,13 @@ class StatisticsCatalog:
 
     def get_correlated_pairs(self):
         return self.correlated_pairs
+    
+    def update_correlation(self, table, col_a, col_b, score):
+        """
+        Insert or update a correlation score for (col_a, col_b) under the given table.
+        Used for applying feedback.
+        """
+        key = (table, col_a, col_b)
+        rev_key = (table, col_b, col_a)
+        self.correlated_pairs[key] = score
+        self.correlated_pairs[rev_key] = score  # Ensure symmetry

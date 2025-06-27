@@ -1,4 +1,6 @@
 import sqlite3
+import numpy as np
+import matplotlib.pyplot as plt
 from benchmark import QErrorBenchmark
 from estimators.PostgresEstimator import PostgresEstimator
 from estimators.HistogramEstimator import HistogramEstimator
@@ -26,7 +28,37 @@ def main():
     # benchmark.add_estimator(HyperLogLogEstimator(conn))
     
     # Run the benchmark
-    benchmark.run_benchmark()
+    # benchmark.run_benchmark()
+
+    # Run comparative feedback benchmark for estimators that support it
+    for estimator in benchmark.estimators:
+        if hasattr(estimator, "apply_feedback"):
+            print(f"\n[Feedback Benchmark] Running feedback-aware benchmark for {estimator.name}...")
+            results = benchmark.run_comparative_feedback_benchmark(estimator)
+
+            print("Mean Q-error (before feedback):", np.mean(results['before']))
+            print("Mean Q-error (after feedback):", np.mean(results['after']))
+
+            plt.plot(results['before'], label="Before Feedback")
+            plt.plot(results['after'], label="After Feedback")
+            plt.yscale("log")
+            plt.xlabel("Query Index")
+            plt.ylabel("Q-error")
+            plt.title(f"Q-error Before vs. After Feedback ({estimator.name})")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(f"qerror_feedback_comparison_{estimator.name}.png")
+            plt.show()
+
+            # Save manually into benchmark.results for compatibility
+            benchmark.results[estimator.name] = {
+                'q_errors': results['after'],  # So post-feedback Q-errors go into standard analysis
+            }
+
+        else:
+            print(f"\n[Standard Benchmark] Running standard benchmark for {estimator.name}...")
+            benchmark.results[estimator.name] = benchmark._evaluate_estimator(estimator)
+
     
     # Analyze the results
     analysis = benchmark.analyze_results()

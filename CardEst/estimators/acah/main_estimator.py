@@ -50,3 +50,19 @@ class ACAHv3Estimator(CardinalityEstimator):
 
     def save_stats(self):
         self.stats_catalog.save_to_file()
+
+    def apply_feedback(self, query, true_cardinality, estimated_cardinality):
+        q_error = max(estimated_cardinality, true_cardinality) / max(1.0, min(estimated_cardinality, true_cardinality))
+
+        feedback_data = {
+            "query": query,
+            "estimated_cardinality": estimated_cardinality,
+            "true_cardinality": true_cardinality,
+            "q_error": q_error,
+            "estimation_details": self.query_estimator.context.details,
+        }
+
+        recommendations = self.feedback_handler.analyze_feedback(feedback_data)
+        self.feedback_handler.apply_recommendations(recommendations)
+        self.save_stats()
+

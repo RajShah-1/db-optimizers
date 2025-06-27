@@ -87,3 +87,17 @@ class CondSummaryCatalog:
         keys_to_remove = [key for key in self.cache if key[0] == table and key[1] == column]
         for key in keys_to_remove:
             del self.cache[key]
+
+    def materialize_summary(self, table, col_a, col_b, hist_catalog):
+        """
+        Public API to build and store conditional summary col_a → col_b.
+        To be used when applying feedback.
+        """
+        hist = hist_catalog.get(table, col_a)
+        if not hist:
+            return
+        for bucket_idx, bucket in enumerate(hist):
+            mini_hist = self._build_cond_summary(table, col_a, bucket, col_b)
+            if mini_hist:
+                self.set(table, col_a, bucket_idx, col_b, mini_hist)
+

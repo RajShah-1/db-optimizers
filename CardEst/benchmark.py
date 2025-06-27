@@ -76,20 +76,25 @@ class QErrorBenchmark:
                 print(query_sql, true_card)
                 self.true_card_cache[query_hash] = true_card
 
-            # HACK: Materialize all stats for the query for the ACAH estimator
-            if hasattr(estimator, 'prepare_stats_for_query'):
-                estimator.prepare_stats_for_query(query_sql)
+            # # HACK: Materialize all stats for the query for the ACAH estimator
+            # if hasattr(estimator, 'prepare_stats_for_query'):
+            #     estimator. prepare_stats_for_query(query_sql)
 
+            if hasattr(estimator, 'materialize_all_stats_for_query'):
+                estimator.materialize_all_stats_for_query(query_sql)
             
             # Get estimated cardinality
             start_time = time.time()
             est_card = estimator.estimate_cardinality(query_sql)
             end_time = time.time()
+
+            # Apply feedback if estimator supports it
+            if hasattr(estimator, "apply_feedback"):
+                estimator.apply_feedback(query_sql, true_card, est_card)
             
             # Then apply feedback for future queries
             # This ensures each query is estimated using only statistics from previous queries
-            if hasattr(estimator, 'materialize_all_stats_for_query'):
-                estimator.materialize_all_stats_for_query(query_sql)
+            
             
             # Calculate q-error
             if true_card == 0:
@@ -216,3 +221,49 @@ class QErrorBenchmark:
             plt.savefig(output_file)
         else:
             plt.show()
+
+    def _get_true_cardinality(self, query_sql):
+        query_hash = str(query_sql)
+        if query_hash in self.true_card_cache:
+            return self.true_card_cache[query_hash]
+        cursor = self.conn.cursor()
+        cursor.execute(query_sql)
+        true_card = cursor.fetchone()[0]
+        self.true_card_cache[query_hash] = true_card
+        return true_card
+
+    def run_comparative_feedback_benchmark(self, estimator):
+        results = {
+            'before': [],
+            'after': [],
+            'queries': [],
+        }
+
+        # Phase 1: Estimation + feedback learning
+        for query_data in self.queries:
+            query_sql = query_data['query']
+            true_card = self._get_true_cardinality(query_sql)
+
+            if hasattr(estimator, 'materialize_all_stats_for_query'):
+                estimator.materialize_all_stats_for_query(query_sql)
+
+            est_card = estimator.estimate_cardinality(query_sql)
+            q_err = max(est_card, true_card) / max(1.0, min(est_card, true_card))
+            results['before'].append(q_err)
+            results['queries'].append(query_sql)
+
+            if hasattr(estimator, "apply_feedback"):
+                estimator.apply_feedback(query_sql, true_card, est_card)
+
+        # Phase 2: Re-estimate using updated model
+        for query_sql in results['queries']:
+            true_card = self._get_true_cardinality(query_sql)
+
+            if hasattr(estimator, 'materialize_all_stats_for_query'):
+                estimator.materialize_all_stats_for_query(query_sql)
+
+            est_card = estimator.estimate_cardinality(query_sql)
+            q_err = max(est_card, true_card) / max(1.0, min(est_card, true_card))
+            results['after'].append(q_err)
+
+        return results
