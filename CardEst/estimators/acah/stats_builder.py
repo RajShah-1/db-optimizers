@@ -52,6 +52,7 @@ class StatsBuilder:
                 if col_type != 'numeric': continue
                 try:
                     # Use quotes for safety
+                    print(f'SELECT "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL ORDER BY "{column}"')
                     cursor.execute(f'SELECT "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL ORDER BY "{column}"')
                     sorted_values = [row[0] for row in cursor.fetchall()]
                     num_rows = len(sorted_values)

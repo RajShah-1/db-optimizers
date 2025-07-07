@@ -244,8 +244,8 @@ class QErrorBenchmark:
             query_sql = query_data['query']
             true_card = self._get_true_cardinality(query_sql)
 
-            if hasattr(estimator, 'materialize_all_stats_for_query'):
-                estimator.materialize_all_stats_for_query(query_sql)
+            # if hasattr(estimator, 'materialize_all_stats_for_query'):
+                # estimator.materialize_all_stats_for_query(query_sql)
 
             est_card = estimator.estimate_cardinality(query_sql)
             q_err = max(est_card, true_card) / max(1.0, min(est_card, true_card))

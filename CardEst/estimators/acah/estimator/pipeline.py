@@ -84,11 +84,11 @@ class PredicateSelectivity:
                 table_sels[table] = 0.0
                 continue
 
-            sel, pred_sel_detail, debug_entries = self._estimate_table_sel(context, table, preds_by_table[table], card)
+            sel, pred_sel_detail = self._estimate_table_sel(context, table, preds_by_table[table])
             eff_cards[table] = max(1, card * sel)
             table_sels[table] = sel
             pred_sels.update(pred_sel_detail)
-            debug_preds.extend(debug_entries)
+            # debug_preds.extend(debug_entries)
 
         context.effective_table_cards = eff_cards
         context.details['effective_cards'] = eff_cards

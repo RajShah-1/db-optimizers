@@ -51,9 +51,12 @@ def main():
             plt.show()
 
             # Save manually into benchmark.results for compatibility
-            benchmark.results[estimator.name] = {
-                'q_errors': results['after'],  # So post-feedback Q-errors go into standard analysis
-            }
+            # benchmark.results[estimator.name] = {
+            #     'q_errors': results['after'],  # So post-feedback Q-errors go into standard analysis
+            # }
+            benchmark.results[estimator.name] = [
+                {"q_error": q} for q in results["after"]
+            ]
 
         else:
             print(f"\n[Standard Benchmark] Running standard benchmark for {estimator.name}...")

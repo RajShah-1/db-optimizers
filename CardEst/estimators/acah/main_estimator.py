@@ -41,9 +41,9 @@ class ACAHv3Estimator(CardinalityEstimator):
         estimate, details = self.query_estimator.estimate(query, self.stats_catalog.cond_summary_catalog.get)
         return estimate
 
-    def materialize_all_stats_for_query(self, query):
-        _, details = self.query_estimator.estimate(query, self.stats_catalog.cond_summary_catalog.get)
-        self.feedback_handler.materialize_all_relevant_summaries(query, details)
+    # def materialize_all_stats_for_query(self, query):
+    #     _, details = self.query_estimator.estimate(query, self.stats_catalog.cond_summary_catalog.get)
+    #     self.feedback_handler.materialize_all_relevant_summaries(query, details)
 
     def apply_pending_refinements(self, save_stats_after=True):
         return 0  # ML refinements not used in fail-fast mode
