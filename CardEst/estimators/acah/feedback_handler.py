@@ -58,22 +58,91 @@ class FeedbackHandlerML:
         return 'histogram'
 
     def _extract_classification_features(self, feedback_data):
-        """Extract features for the classifier from feedback data."""
+        """
+        Extracts a numerical feature vector from the feedback data for use in 
+        machine learning-based error source classification.
+
+        Parameters:
+            feedback_data (dict): Dictionary containing:
+                - 'query': SQL string
+                - 'estimated_cardinality' (float)
+                - 'true_cardinality' (float)
+                - 'q_error' (float)
+                - 'estimation_details' (dict): Populated by the ACAH estimation pipeline, 
+                includes:
+                    - 'parsed': tables, joins, and predicates extracted from the query
+                    - 'predicate_selectivities': {index: (source, selectivity)}
+                    - 'table_selectivities': {table: selectivity}
+                    - 'join_details': includes final_reduction_factor
+
+        Returns:
+            List[float]: A fixed-length feature vector containing:
+                [0]  Number of selection predicates
+                [1]  Number of joins
+                [2]  Number of tables
+                [3]  Q-error
+                [4]  Estimated cardinality
+                [5]  True cardinality
+                [6]  Average predicate selectivity
+                [7]  Minimum predicate selectivity
+                [8]  Maximum predicate selectivity
+                [9]  Stddev of predicate selectivities
+                [10] Number of predicates using conditional summaries
+                [11] Average table selectivity
+                [12] Final join reduction factor
+        """
         features = []
-        details = feedback_data['estimation_details']
+
+        details = feedback_data.get("estimation_details", {})
         parsed = details.get("parsed", {})
-        
-        # Number of predicates
-        features.append(len(parsed.get("preds", [])))
-        
-        # Number of joins
-        features.append(len(parsed.get("joins", [])))
-        
-        # Query error
-        features.append(feedback_data['q_error'])
-        
-        # Add more features as needed
+
+        # --- Query shape features ---
+        num_preds = len(parsed.get("preds", []))
+        num_joins = len(parsed.get("joins", []))
+        num_tables = len(parsed.get("tables", {}))
+
+        features.extend([num_preds, num_joins, num_tables])
+
+        # --- Q-error and cardinalities ---
+        q_error = feedback_data.get("q_error", 1.0)
+        est_card = feedback_data.get("estimated_cardinality", 1.0)
+        true_card = feedback_data.get("true_cardinality", 1.0)
+
+        features.extend([q_error, est_card, true_card])
+
+        # --- Predicate selectivities ---
+        pred_sels = details.get("predicate_selectivities", {})
+        selectivities = [sel for _, sel in pred_sels.values() if isinstance(sel, (int, float, float))]
+
+        if selectivities:
+            import numpy as np
+            features.extend([
+                float(np.mean(selectivities)),
+                float(np.min(selectivities)),
+                float(np.max(selectivities)),
+                float(np.std(selectivities))
+            ])
+        else:
+            features.extend([0.0, 0.0, 0.0, 0.0])
+
+        # Count how many predicates used conditional summaries
+        num_cond_summary_preds = sum(1 for (src, _) in pred_sels.values() if src == 'cond_summary')
+        features.append(num_cond_summary_preds)
+
+        # --- Table selectivities ---
+        table_sels = details.get("table_selectivities", {})
+        if table_sels:
+            avg_table_sel = sum(table_sels.values()) / len(table_sels)
+            features.append(avg_table_sel)
+        else:
+            features.append(0.0)
+
+        # --- Join reduction factor ---
+        join_info = details.get("join_details", {})
+        features.append(join_info.get("final_reduction_factor", 1.0))
+
         return features
+
 
     def _is_histogram_problem(self, table, column, value, q_error):
         """Check if a histogram problem exists for given predicate."""
