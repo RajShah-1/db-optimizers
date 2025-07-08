@@ -162,13 +162,17 @@ class FeedbackHandlerML:
 
     def _get_column_pairs(self, preds, joins):
         """Get all relevant column pairs from predicates and joins."""
-        pairs = set()
-        for table, col, _, _ in preds:
-            pairs.add((table, col))
+        triples = set()
+        for t, c, _, _ in preds:
+            # Try all pairs (c, other_col)
+            for t2, c2, _, _ in preds:
+                if c != c2:
+                    triples.add((t, c, c2))
         for t1, c1, t2, c2 in joins:
-            pairs.add((t1, c1))
-            pairs.add((t2, c2))
-        return pairs
+            triples.add((t1, c1, c2))
+            triples.add((t2, c2, c1))
+        return triples
+
 
     def analyze_feedback(self, feedback_data):
         """Analyze feedback data and determine what statistics need adjustment.

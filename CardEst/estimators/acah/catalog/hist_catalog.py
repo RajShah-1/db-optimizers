@@ -103,3 +103,15 @@ class HistogramCatalog:
         except Exception as e:
             print(f"Error splitting bucket {table}.{column}: {e}")
             return None
+
+    def find_bucket(self, table, column, value):
+        """
+        Finds and returns the actual bucket object from the histogram for (table, column)
+        that contains the given value.
+        """
+        hist = self.histograms.get((table, column), [])
+        idx = self._find_bucket_index(hist, value)
+        if idx is not None and 0 <= idx < len(hist):
+            return hist[idx]
+        return None
+
